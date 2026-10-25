@@ -67,6 +67,23 @@ from acp.schema import (
 )
 from pydantic_deep import DeepAgentDeps
 
+
+def _tool_result_display(part: Any, max_len: int = 500) -> tuple[str, str]:
+    """Return ``(tool_call_id, display_text)`` for a tool result event's part.
+
+    ``part`` is the ``ToolReturnPart`` carried by a ``FunctionToolResultEvent``
+    (pydantic-ai exposes it as ``event.part``; it has no ``result`` attribute).
+    ``None`` content renders as an empty string, while valid falsy results
+    (``0``, ``False``, ``[]``) keep their string form; anything longer than
+    ``max_len`` characters is truncated for display.
+    """
+    content_str = "" if part.content is None else str(part.content)
+    if len(content_str) > max_len:
+        content_str = content_str[:max_len] + "..."
+    return part.tool_call_id, content_str
+
+
+
 logger = logging.getLogger(__name__)
 
 # Tool name → ACP tool kind string mapping
@@ -362,14 +379,10 @@ class DeepAgentACP(ACPAgent):
                             async for event in tool_stream:
                                 ename = type(event).__name__
                                 if ename == "FunctionToolResultEvent":
-                                    r = event.result
-                                    # Truncate long results for display
-                                    content_str = str(r.content) if r.content else ""
-                                    if len(content_str) > 500:
-                                        content_str = content_str[:500] + "..."
+                                    tool_call_id, content_str = _tool_result_display(event.part)
                                     await send(
                                         update_tool_call(
-                                            tool_call_id=r.tool_call_id,
+                                            tool_call_id=tool_call_id,
                                             status="completed",
                                             content=[tool_content(text_block(content_str))]
                                             if content_str
